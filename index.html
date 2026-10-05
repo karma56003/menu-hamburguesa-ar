@@ -228,6 +228,27 @@
       margin: auto;
     }
 
+    .controls-five {
+      grid-template-columns: repeat(5, 1fr);
+      max-width: 620px;
+    }
+
+    .active-mode {
+      background: rgba(255,255,255,.94) !important;
+      color: #111 !important;
+      border-color: rgba(255,255,255,.95) !important;
+    }
+
+    @media (max-width: 600px) {
+      .controls-five {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .controls-five button:nth-child(5) {
+        grid-column: span 2;
+      }
+    }
+
     .controls button {
       padding: 13px 6px;
       font-size: 13px;
@@ -313,6 +334,7 @@
       src="./hamburguesa_talcual_3d.glb"
       alt="Hamburguesa sobre la mesa"
       camera-controls
+      touch-action="pan-y"
       disable-zoom
       interaction-prompt="none"
       shadow-intensity="1"
@@ -331,12 +353,14 @@
     <div class="bottom">
 
       <div class="instructions glass">
-        Arrastra la hamburguesa sobre la mesa.
-        Pellizca con dos dedos para cambiar el tamaño.
-        Gírala directamente sobre el modelo.
+        Usa <b>Mover</b> para colocar la hamburguesa sobre la mesa.
+        Usa <b>Girar</b> y arrastra sobre el modelo para rotarlo.
+        Cambia el tamaño con los botones.
       </div>
 
-      <div class="controls">
+      <div class="controls controls-five">
+        <button id="moveMode" class="glass active-mode">✋ Mover</button>
+        <button id="rotateMode" class="glass">↻ Girar</button>
         <button id="smaller" class="glass">− Tamaño</button>
         <button id="center" class="glass">Centrar</button>
         <button id="bigger" class="glass">+ Tamaño</button>
@@ -377,6 +401,8 @@ const closeCamera = document.querySelector("#closeCamera");
 const smaller = document.querySelector("#smaller");
 const bigger = document.querySelector("#bigger");
 const center = document.querySelector("#center");
+const moveMode = document.querySelector("#moveMode");
+const rotateMode = document.querySelector("#rotateMode");
 
 const permissionMessage = document.querySelector("#permissionMessage");
 const closePermission = document.querySelector("#closePermission");
@@ -528,6 +554,7 @@ closePermission.addEventListener("click", () => {
 let posX = innerWidth / 2;
 let posY = innerHeight * 0.58;
 let scale = 1;
+let interactionMode = "move";
 
 const pointers = new Map();
 
@@ -555,8 +582,42 @@ function clampScale(v) {
   return Math.max(.32, Math.min(2.6, v));
 }
 
+function setInteractionMode(mode) {
+  interactionMode = mode;
+
+  const moving = mode === "move";
+
+  moveMode.classList.toggle("active-mode", moving);
+  rotateMode.classList.toggle("active-mode", !moving);
+
+  /*
+    En modo mover, el model-viewer no recibe gestos y el contenedor
+    completo se puede arrastrar.
+    En modo girar, el model-viewer recibe los gestos y camera-controls
+    rota la cámara alrededor del modelo.
+  */
+  burger.style.pointerEvents = moving ? "none" : "auto";
+  stage.style.cursor = moving ? "grab" : "default";
+
+  status.textContent = moving
+    ? "Modo mover · coloca la hamburguesa"
+    : "Modo girar · arrastra sobre la hamburguesa";
+}
+
+moveMode.addEventListener("click", e => {
+  e.stopPropagation();
+  setInteractionMode("move");
+});
+
+rotateMode.addEventListener("click", e => {
+  e.stopPropagation();
+  setInteractionMode("rotate");
+});
+
 
 stage.addEventListener("pointerdown", e => {
+
+  if (interactionMode !== "move") return;
 
   pointers.set(e.pointerId, {
     x: e.clientX,
@@ -595,6 +656,7 @@ stage.addEventListener("pointerdown", e => {
 
 stage.addEventListener("pointermove", e => {
 
+  if (interactionMode !== "move") return;
   if (!pointers.has(e.pointerId)) return;
 
   pointers.set(e.pointerId, {
@@ -639,6 +701,8 @@ stage.addEventListener("pointermove", e => {
 
 
 function endPointer(e) {
+
+  if (interactionMode !== "move") return;
 
   pointers.delete(e.pointerId);
 
@@ -714,9 +778,11 @@ window.addEventListener("resize", () => {
 });
 
 
+setInteractionMode("move");
 updateBurger();
 
 </script>
 </body>
 </html>
+
 
