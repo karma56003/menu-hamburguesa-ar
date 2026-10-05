@@ -1,0 +1,22 @@
+PRUEBA DE HAMBURGUESA 3D + AR
+
+ARCHIVOS
+- index.html
+- hamburguesa_talcual_3d.glb
+
+COMO PROBAR EN PC
+1. Abre esta carpeta en VS Code.
+2. Ejecuta index.html con Live Server.
+3. La vista 3D debería funcionar inmediatamente.
+
+COMO PROBAR EN CELULAR
+Para mostrar la cámara, el navegador exige un contexto seguro.
+Lo recomendable es publicar esta carpeta en Netlify, Vercel o cualquier hosting HTTPS.
+
+IMPORTANTE
+- En Android compatible con ARCore, el botón "Ver en mi mesa" intentará abrir AR real.
+- En Android sin ARCore, se activa automáticamente el modo compatible:
+  cámara trasera + hamburguesa 3D superpuesta.
+- El modo compatible NO detecta físicamente el plano de la mesa.
+  El usuario coloca el modelo manualmente.
+- En iPhone, Quick Look funciona mejor con un archivo USDZ adicional.
