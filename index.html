@@ -132,15 +132,19 @@
     #camera {
       position: absolute;
       inset: 0;
+      z-index: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
       background: #000;
+      transform: translateZ(0);
+      backface-visibility: hidden;
     }
 
     #stage {
       position: absolute;
       inset: 0;
+      z-index: 2;
       touch-action: none;
       overflow: hidden;
     }
@@ -347,7 +351,17 @@
 
     <div class="topbar">
       <button id="closeCamera" class="glass">×</button>
-      <div id="status" class="glass">Modo cámara</div>
+
+      <div style="display:flex; gap:8px; align-items:center; pointer-events:auto;">
+        <button id="switchCamera" class="glass" style="
+          width:48px;
+          height:48px;
+          padding:0;
+          border-radius:50%;
+          font-size:20px;">↺</button>
+
+        <div id="status" class="glass">Modo cámara</div>
+      </div>
     </div>
 
     <div class="bottom">
@@ -368,6 +382,21 @@
 
     </div>
   </div>
+
+  <div id="cameraDebug" style="
+      position:absolute;
+      top:82px;
+      left:14px;
+      right:14px;
+      z-index:12;
+      display:none;
+      padding:10px 12px;
+      border-radius:12px;
+      background:rgba(0,0,0,.55);
+      color:white;
+      font-size:12px;
+      line-height:1.4;
+      pointer-events:none;"></div>
 
   <div id="permissionMessage">
     <div>
@@ -398,6 +427,8 @@ const burger = document.querySelector("#burger");
 const status = document.querySelector("#status");
 
 const closeCamera = document.querySelector("#closeCamera");
+const switchCamera = document.querySelector("#switchCamera");
+const cameraDebug = document.querySelector("#cameraDebug");
 const smaller = document.querySelector("#smaller");
 const bigger = document.querySelector("#bigger");
 const center = document.querySelector("#center");
@@ -409,6 +440,7 @@ const closePermission = document.querySelector("#closePermission");
 
 let realWebXR = false;
 let stream = null;
+let currentFacing = "environment";
 
 
 /* ------------------------------------------------
@@ -483,11 +515,158 @@ forceCamera.addEventListener("click", async () => {
    CÁMARA
    ------------------------------------------------ */
 
+async function stopExistingStream() {
+  if (stream) {
+    stream.getTracks().forEach(track => {
+      try { track.stop(); } catch(_) {}
+    });
+    stream = null;
+  }
+
+  try {
+    camera.pause();
+  } catch(_) {}
+
+  camera.srcObject = null;
+}
+
+
+function waitForVideoReady(video, timeout = 4500) {
+  return new Promise((resolve, reject) => {
+
+    const started = Date.now();
+
+    function check() {
+
+      if (
+        video.readyState >= 2 &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
+      ) {
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - started > timeout) {
+        reject(
+          new Error(
+            `La cámara no entregó imagen. readyState=${video.readyState}, ` +
+            `video=${video.videoWidth}x${video.videoHeight}`
+          )
+        );
+        return;
+      }
+
+      requestAnimationFrame(check);
+    }
+
+    check();
+  });
+}
+
+
+async function requestCamera(facing) {
+
+  await stopExistingStream();
+
+  const attempts = [
+    {
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    },
+
+    {
+      video: {
+        facingMode: facing
+      },
+      audio: false
+    },
+
+    {
+      video: true,
+      audio: false
+    }
+  ];
+
+  let lastError = null;
+
+  for (const constraints of attempts) {
+
+    try {
+
+      cameraDebug.style.display = "block";
+      cameraDebug.textContent =
+        `Intentando cámara ${facing === "environment" ? "trasera" : "frontal"}…`;
+
+      const candidate =
+        await navigator.mediaDevices.getUserMedia(constraints);
+
+      stream = candidate;
+
+      camera.srcObject = stream;
+      camera.muted = true;
+      camera.playsInline = true;
+      camera.autoplay = true;
+
+      camera.setAttribute("playsinline", "");
+      camera.setAttribute("autoplay", "");
+      camera.setAttribute("muted", "");
+
+      await new Promise(resolve => {
+        if (camera.readyState >= 1) {
+          resolve();
+        } else {
+          camera.onloadedmetadata = () => resolve();
+        }
+      });
+
+      try {
+        await camera.play();
+      } catch(playError) {
+        console.warn("camera.play()", playError);
+      }
+
+      await waitForVideoReady(camera);
+
+      const track = stream.getVideoTracks()[0];
+      const settings = track?.getSettings?.() || {};
+
+      cameraDebug.textContent =
+        `Cámara activa: ${camera.videoWidth}×${camera.videoHeight}` +
+        (settings.facingMode ? ` · ${settings.facingMode}` : "");
+
+      setTimeout(() => {
+        cameraDebug.style.display = "none";
+      }, 1800);
+
+      return true;
+
+    } catch(err) {
+
+      lastError = err;
+
+      console.warn("Intento de cámara falló:", constraints, err);
+
+      await stopExistingStream();
+    }
+  }
+
+  throw lastError || new Error("No se pudo iniciar ninguna cámara.");
+}
+
+
 async function openCameraMode() {
 
   cameraMode.classList.add("active");
   document.body.style.overflow = "hidden";
   permissionMessage.classList.remove("show");
+
+  cameraDebug.style.display = "block";
+  cameraDebug.textContent = "Preparando cámara…";
 
   if (
     !window.isSecureContext ||
@@ -495,51 +674,82 @@ async function openCameraMode() {
     !navigator.mediaDevices.getUserMedia
   ) {
     status.textContent = "Cámara no disponible";
+    cameraDebug.textContent =
+      "El navegador no permite getUserMedia en este contexto.";
     permissionMessage.classList.add("show");
     return;
   }
 
   try {
 
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-      },
-      audio: false
-    });
+    await requestCamera(currentFacing);
 
-    camera.srcObject = stream;
-    await camera.play();
-
-    status.textContent = "Modo cámara · coloca la hamburguesa";
+    status.textContent =
+      currentFacing === "environment"
+        ? "Cámara trasera · coloca la hamburguesa"
+        : "Cámara frontal · coloca la hamburguesa";
 
   } catch(err) {
 
-    console.error("Error de cámara:", err);
+    console.error("Error final de cámara:", err);
 
-    status.textContent = "Permiso de cámara bloqueado";
+    status.textContent = "No se pudo obtener imagen";
+
+    cameraDebug.style.display = "block";
+    cameraDebug.textContent =
+      "La cámara recibió permiso, pero no entregó video. " +
+      (err?.message || String(err));
+
     permissionMessage.classList.add("show");
   }
 }
 
 
-function stopCamera() {
+async function stopCamera() {
 
   cameraMode.classList.remove("active");
   document.body.style.overflow = "";
 
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
+  cameraDebug.style.display = "none";
 
-  camera.srcObject = null;
+  await stopExistingStream();
 }
 
 
-closeCamera.addEventListener("click", stopCamera);
+switchCamera.addEventListener("click", async e => {
+
+  e.stopPropagation();
+
+  currentFacing =
+    currentFacing === "environment"
+      ? "user"
+      : "environment";
+
+  status.textContent = "Cambiando cámara…";
+
+  try {
+
+    await requestCamera(currentFacing);
+
+    status.textContent =
+      currentFacing === "environment"
+        ? "Cámara trasera · coloca la hamburguesa"
+        : "Cámara frontal · coloca la hamburguesa";
+
+  } catch(err) {
+
+    console.error(err);
+
+    status.textContent = "No se pudo cambiar cámara";
+
+    cameraDebug.style.display = "block";
+    cameraDebug.textContent =
+      err?.message || String(err);
+  }
+});
+
+
+closeCamera.addEventListener("click", () => stopCamera());
 
 closePermission.addEventListener("click", () => {
   permissionMessage.classList.remove("show");
